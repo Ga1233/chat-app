@@ -1,0 +1,157 @@
+.message-row {
+  display: flex;
+  gap: 8px;
+  margin: 1px 0;
+  animation: messageIn 0.2s ease;
+}
+
+.message-row.own {
+  flex-direction: row-reverse;
+}
+
+.message-avatar {
+  flex-shrink: 0;
+  align-self: flex-end;
+  margin-bottom: 2px;
+}
+
+.message-avatar-spacer {
+  width: 32px;
+  flex-shrink: 0;
+}
+
+.bubble-group {
+  display: flex;
+  flex-direction: column;
+  max-width: min(72%, 480px);
+}
+
+.bubble-group.own { align-items: flex-end; }
+.bubble-group.other { align-items: flex-start; }
+
+.sender-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  padding: 0 4px;
+  margin-bottom: 2px;
+}
+
+.bubble {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  max-width: 100%;
+}
+
+.bubble-own {
+  background: var(--accent);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.bubble-other {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-bottom-left-radius: 4px;
+  border: 1px solid var(--border);
+}
+
+.bubble-image {
+  padding: 4px;
+  overflow: hidden;
+}
+
+.msg-text {
+  font-size: 14px;
+  line-height: 1.5;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.msg-image {
+  display: block;
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: calc(var(--radius-lg) - 4px);
+  object-fit: cover;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.msg-image:hover { opacity: 0.9; }
+
+.file-attachment {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+  min-width: 180px;
+}
+
+.file-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: rgba(255,255,255,0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.file-icon svg { width: 20px; height: 20px; }
+
+.file-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-action {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.file-dl { flex-shrink: 0; }
+.file-dl svg { width: 16px; height: 16px; opacity: 0.7; }
+
+.msg-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.msg-time {
+  font-size: 10px;
+  opacity: 0.65;
+  white-space: nowrap;
+}
+
+.msg-seen {
+  display: flex;
+  align-items: center;
+  opacity: 0.65;
+}
+
+.msg-seen.seen { opacity: 1; }
+.msg-seen svg { width: 14px; height: 14px; }
+
+@media (max-width: 480px) {
+  .bubble-group { max-width: 85%; }
+  .msg-image { max-height: 220px; }
+}
