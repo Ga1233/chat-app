@@ -63,7 +63,7 @@ module.exports = (io, socket, onlineUsers) => {
     try {
       if (!socket.userId) return socket.emit("error", { message: "Unauthorized" });
 
-      const { conversationId, text, messageType = "text", fileUrl = "", fileName = "" } = data;
+      const { conversationId, text, messageType = "text", fileUrl = "", fileName = "", replyTo = null } = data;
 
       // Verify conversation exists and user is a member
       const conversation = await Conversation.findOne({
@@ -85,6 +85,7 @@ module.exports = (io, socket, onlineUsers) => {
         messageType,
         timestamp: Date.now(),
         seenBy: [socket.userId],
+        replyTo: replyTo || null,
       };
 
       // Update last message time

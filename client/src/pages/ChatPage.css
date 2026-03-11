@@ -1,22 +1,33 @@
 .chat-page {
   display: flex;
-  height: 100vh;
-  height: -webkit-fill-available;
+  width: 100%;
+  height: 100%;
   background: var(--bg-primary);
   overflow: hidden;
+  /* Critical: flex children need a real height context to scroll */
+  min-height: 0;
 }
 
 .chat-sidebar-wrapper {
   width: var(--sidebar-width);
   flex-shrink: 0;
+  /* Must have a defined height so inner flex children can scroll */
   height: 100%;
+  min-height: 0;
   border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .chat-main-wrapper {
   flex: 1;
-  height: 100%;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Mobile: full screen toggle */
