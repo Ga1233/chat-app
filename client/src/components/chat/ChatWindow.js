@@ -109,8 +109,8 @@ const ChatWindow = ({ onBack }) => {
   const handleFileSelect = async (e) => {
     const file = e.target.files?.[0];
     if (!file || !activeConversation) return;
-    const maxSize = 5 * 1024 * 1024;
-    if (file.size > maxSize) { alert("File too large. Maximum size is 5MB."); return; }
+    const maxSize = 10 * 1024 * 1024;
+    if (file.size > maxSize) { alert("File too large. Maximum size is 10MB."); return; }
     setUploading(true);
     const reader = new FileReader();
     reader.onload = (evt) => {

@@ -20,7 +20,7 @@ const io = new Server(server, {
     methods: ["GET", "POST"],
     credentials: true,
   },
-  maxHttpBufferSize: 1e7, // 10MB for file transfers
+  maxHttpBufferSize: 2e7, // 10MB for file transfers
 });
 
 // Express middleware
