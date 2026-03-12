@@ -70,43 +70,48 @@ export const ChatProvider = ({ children }) => {
     const handleGroupsList = ({ groups }) => setGroups(groups);
 
     const handleNewMessage = async ({ message }) => {
-      await saveMessage(message);
+      try {
+        // Save to IndexedDB (non-blocking — UI updates even if save fails)
+        saveMessage(message).catch((err) => console.warn("IndexedDB save error:", err));
 
-      if (activeConversation?._id === message.conversationId) {
-        setMessages((prev) => {
-          const exists = prev.find((m) => m.id === message.id);
-          return exists ? prev : [...prev, message];
+        if (activeConversation?._id === message.conversationId) {
+          setMessages((prev) => {
+            const exists = prev.find((m) => m.id === message.id);
+            return exists ? prev : [...prev, message];
+          });
+
+          // Mark as seen if active
+          if (message.senderId !== user?._id) {
+            socket.emit("markSeen", {
+              conversationId: message.conversationId,
+              messageIds: [message.id],
+            });
+            updateMessageSeenStatus([message.id], user?._id).catch(() => {});
+          }
+        } else {
+          setUnreadCounts((prev) => ({
+            ...prev,
+            [message.conversationId]: (prev[message.conversationId] || 0) + 1,
+          }));
+        }
+
+        // Update conversation order
+        setConversations((prev) => {
+          const updated = prev.map((c) =>
+            c._id === message.conversationId ? { ...c, lastMessageAt: message.timestamp } : c
+          );
+          return updated.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
         });
 
-        // Mark as seen if active
-        if (message.senderId !== user?._id) {
-          socket.emit("markSeen", {
-            conversationId: message.conversationId,
-            messageIds: [message.id],
-          });
-          await updateMessageSeenStatus([message.id], user?._id);
-        }
-      } else {
-        setUnreadCounts((prev) => ({
-          ...prev,
-          [message.conversationId]: (prev[message.conversationId] || 0) + 1,
-        }));
+        setGroups((prev) => {
+          const updated = prev.map((g) =>
+            g._id === message.conversationId ? { ...g, lastMessageAt: message.timestamp } : g
+          );
+          return updated.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
+        });
+      } catch (err) {
+        console.warn("handleNewMessage error:", err);
       }
-
-      // Update conversation order
-      setConversations((prev) => {
-        const updated = prev.map((c) =>
-          c._id === message.conversationId ? { ...c, lastMessageAt: message.timestamp } : c
-        );
-        return updated.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
-      });
-
-      setGroups((prev) => {
-        const updated = prev.map((g) =>
-          g._id === message.conversationId ? { ...g, lastMessageAt: message.timestamp } : g
-        );
-        return updated.sort((a, b) => new Date(b.lastMessageAt) - new Date(a.lastMessageAt));
-      });
     };
 
     const handleMessagesSeen = ({ messageIds, seenBy }) => {
