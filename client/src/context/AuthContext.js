@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { createSocket, disconnectSocket, getSocket } from "../socket/socket";
+import { resetDB } from "../storage/indexedDB";
 
 const AuthContext = createContext(null);
 
@@ -24,6 +25,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = useCallback((token, userData) => {
+    resetDB(); // Reset stale IndexedDB connection before new session
     localStorage.setItem("chatToken", token);
     localStorage.setItem("chatUser", JSON.stringify(userData));
     setUser(userData);
@@ -33,6 +35,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const logout = useCallback(() => {
+    resetDB(); // Close IndexedDB connection on logout
     localStorage.removeItem("chatToken");
     localStorage.removeItem("chatUser");
     setUser(null);

@@ -4,9 +4,27 @@ const MESSAGES_STORE = "messages";
 
 let db = null;
 
+// Reset the cached db connection (call this on logout/login)
+export const resetDB = () => {
+  if (db) {
+    try { db.close(); } catch (_) {}
+    db = null;
+  }
+};
+
 export const openDB = () => {
   return new Promise((resolve, reject) => {
-    if (db) return resolve(db);
+    // If we have a valid open connection, reuse it
+    if (db) {
+      // Check if connection is still open
+      try {
+        // Accessing objectStoreNames throws if connection is closed
+        void db.objectStoreNames;
+        return resolve(db);
+      } catch (_) {
+        db = null; // Reset stale connection
+      }
+    }
 
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -21,6 +39,9 @@ export const openDB = () => {
 
     request.onsuccess = (e) => {
       db = e.target.result;
+      // Reset cache if browser closes the connection unexpectedly
+      db.onclose = () => { db = null; };
+      db.onerror = () => { db = null; };
       resolve(db);
     };
 
