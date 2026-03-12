@@ -1,22 +1,11 @@
-const DB_NAME = process.env.REACT_APP_DB_NAME || "chat-app-db";
+// Each user gets their own IndexedDB database (chat-app-db-{userId})
+// This completely prevents cross-session corruption.
+
 const MESSAGES_STORE = "messages";
 
 let db = null;
-let dbVersion = 1;
+let currentDbName = null;
 
-// In-memory fallback so UI always works even if IndexedDB fails
-const memoryStore = new Map(); // key: conversationId, value: message[]
-
-const addToMemory = (message) => {
-  const key = message.conversationId;
-  if (!memoryStore.has(key)) memoryStore.set(key, []);
-  const msgs = memoryStore.get(key);
-  const exists = msgs.find((m) => m.id === message.id);
-  if (!exists) msgs.push(message);
-  msgs.sort((a, b) => a.timestamp - b.timestamp);
-};
-
-// Sanitize to plain cloneable object
 const sanitizeMessage = (message) => ({
   id: String(message.id || ""),
   senderId: String(message.senderId || ""),
@@ -38,31 +27,19 @@ const sanitizeMessage = (message) => ({
     : null,
 });
 
-// Delete the old DB entirely and recreate fresh
-const deleteDB = () =>
+// Call this on login with the userId — opens a user-specific DB
+export const initDB = (userId) =>
   new Promise((resolve) => {
+    // Close existing connection if switching users
     if (db) {
       try { db.close(); } catch (_) {}
       db = null;
     }
-    const req = indexedDB.deleteDatabase(DB_NAME);
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve(); // resolve anyway
-    req.onblocked = () => resolve();
-  });
 
-const openDB = () =>
-  new Promise((resolve, reject) => {
-    if (db) {
-      try {
-        void db.objectStoreNames; // throws if closed
-        return resolve(db);
-      } catch (_) {
-        db = null;
-      }
-    }
+    const dbName = `chat-app-db-${userId}`;
+    currentDbName = dbName;
 
-    const request = indexedDB.open(DB_NAME, dbVersion);
+    const request = indexedDB.open(dbName, 1);
 
     request.onupgradeneeded = (e) => {
       const database = e.target.result;
@@ -76,45 +53,57 @@ const openDB = () =>
     request.onsuccess = (e) => {
       db = e.target.result;
       db.onclose = () => { db = null; };
-      db.onerror = () => { db = null; };
+      db.onerror = (ev) => { console.warn("DB error:", ev); };
       resolve(db);
     };
 
-    request.onerror = () => { db = null; reject(request.error); };
-    request.onblocked = () => { db = null; reject(new Error("IndexedDB blocked")); };
+    request.onerror = () => {
+      console.warn("IndexedDB open failed");
+      db = null;
+      resolve(null); // resolve null so app still works
+    };
+
+    request.onblocked = () => {
+      console.warn("IndexedDB blocked");
+      db = null;
+      resolve(null);
+    };
   });
 
-// Call this on every login/logout — wipes and recreates the DB fresh
-export const resetDB = async () => {
-  memoryStore.clear();
-  await deleteDB();
-  dbVersion = 1; // reset version after delete
+// Call on logout — closes the connection
+export const resetDB = () => {
+  if (db) {
+    try { db.close(); } catch (_) {}
+    db = null;
+  }
+  currentDbName = null;
 };
+
+const getDB = () => db; // just returns cached connection
 
 export const saveMessage = async (message) => {
   const clean = sanitizeMessage(message);
-  addToMemory(clean); // always save to memory first
+  const database = getDB();
+  if (!database) return clean;
   try {
-    const database = await openDB();
     await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readwrite");
-      const store = tx.objectStore(MESSAGES_STORE);
-      store.put(clean);
+      tx.objectStore(MESSAGES_STORE).put(clean);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
     });
   } catch (err) {
-    console.warn("saveMessage DB failed (using memory):", err);
+    console.warn("saveMessage failed:", err);
   }
   return clean;
 };
 
 export const saveMessages = async (messages) => {
-  const cleaned = messages.map(sanitizeMessage);
-  cleaned.forEach(addToMemory);
+  const database = getDB();
+  if (!database) return;
   try {
-    const database = await openDB();
+    const cleaned = messages.map(sanitizeMessage);
     await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readwrite");
       const store = tx.objectStore(MESSAGES_STORE);
@@ -124,40 +113,35 @@ export const saveMessages = async (messages) => {
       tx.onabort = () => reject(tx.error);
     });
   } catch (err) {
-    console.warn("saveMessages DB failed (using memory):", err);
+    console.warn("saveMessages failed:", err);
   }
 };
 
 export const getMessagesByConversation = async (conversationId) => {
-  // Try IndexedDB first
+  const database = getDB();
+  if (!database) return [];
   try {
-    const database = await openDB();
-    const results = await new Promise((resolve, reject) => {
+    return await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readonly");
-      const store = tx.objectStore(MESSAGES_STORE);
-      const index = store.index("conversationId");
-      const req = index.getAll(conversationId);
-      req.onsuccess = () => resolve(req.result || []);
+      const index = tx.objectStore(MESSAGES_STORE).index("conversationId");
+      const req = index.getAll(IDBKeyRange.only(conversationId));
+      req.onsuccess = () =>
+        resolve((req.result || []).sort((a, b) => a.timestamp - b.timestamp));
       req.onerror = () => reject(req.error);
     });
-    if (results.length > 0) {
-      return results.sort((a, b) => a.timestamp - b.timestamp);
-    }
   } catch (err) {
-    console.warn("getMessagesByConversation DB failed (using memory):", err);
+    console.warn("getMessagesByConversation failed:", err);
+    return [];
   }
-  // Fallback to memory
-  return (memoryStore.get(conversationId) || []).sort((a, b) => a.timestamp - b.timestamp);
 };
 
 export const deleteConversationMessages = async (conversationId) => {
-  memoryStore.delete(conversationId);
+  const database = getDB();
+  if (!database) return;
   try {
-    const database = await openDB();
     await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readwrite");
-      const store = tx.objectStore(MESSAGES_STORE);
-      const index = store.index("conversationId");
+      const index = tx.objectStore(MESSAGES_STORE).index("conversationId");
       const req = index.openCursor(IDBKeyRange.only(conversationId));
       req.onsuccess = (e) => {
         const cursor = e.target.result;
@@ -167,21 +151,14 @@ export const deleteConversationMessages = async (conversationId) => {
       tx.onerror = () => reject(tx.error);
     });
   } catch (err) {
-    console.warn("deleteConversationMessages DB failed:", err);
+    console.warn("deleteConversationMessages failed:", err);
   }
 };
 
 export const updateMessageSeenStatus = async (messageIds, userId) => {
-  // Update memory store
-  memoryStore.forEach((msgs) => {
-    msgs.forEach((msg) => {
-      if (messageIds.includes(msg.id) && !msg.seenBy?.includes(String(userId))) {
-        msg.seenBy = [...(msg.seenBy || []), String(userId)];
-      }
-    });
-  });
+  const database = getDB();
+  if (!database) return;
   try {
-    const database = await openDB();
     await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readwrite");
       const store = tx.objectStore(MESSAGES_STORE);
@@ -202,14 +179,14 @@ export const updateMessageSeenStatus = async (messageIds, userId) => {
       tx.onerror = () => reject(tx.error);
     });
   } catch (err) {
-    console.warn("updateMessageSeenStatus DB failed:", err);
+    console.warn("updateMessageSeenStatus failed:", err);
   }
 };
 
 export const clearAllMessages = async () => {
-  memoryStore.clear();
+  const database = getDB();
+  if (!database) return;
   try {
-    const database = await openDB();
     await new Promise((resolve, reject) => {
       const tx = database.transaction(MESSAGES_STORE, "readwrite");
       tx.objectStore(MESSAGES_STORE).clear();
@@ -217,6 +194,6 @@ export const clearAllMessages = async () => {
       tx.onerror = () => reject(tx.error);
     });
   } catch (err) {
-    console.warn("clearAllMessages DB failed:", err);
+    console.warn("clearAllMessages failed:", err);
   }
 };
