@@ -20,60 +20,71 @@ export const ChatProvider = ({ children }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const typingTimeouts = useRef({});
-  const activeConvRef = useRef(null);
 
-  useEffect(() => { activeConvRef.current = activeConversation; }, [activeConversation]);
-
+  // Load messages for active conversation
   const loadMessages = useCallback(async (conversationId) => {
     const msgs = await getMessagesByConversation(conversationId);
     setMessages(msgs);
   }, []);
 
-  const selectConversation = useCallback(async (conversation) => {
-    setActiveConversation(conversation);
-    const convId = conversation._id;
-    await loadMessages(convId);
-    socket?.emit("joinConversation", { conversationId: convId });
+  const selectConversation = useCallback(
+    async (conversation) => {
+      setActiveConversation(conversation);
+      const convId = conversation._id;
+      await loadMessages(convId);
+      socket?.emit("joinConversation", { conversationId: convId });
 
-    const msgs = await getMessagesByConversation(convId);
-    const unseenIds = msgs
-      .filter((m) => m.senderId !== user?._id && !m.seenBy?.includes(user?._id))
-      .map((m) => m.id);
+      // Mark messages as seen
+      const msgs = await getMessagesByConversation(convId);
+      const unseenIds = msgs
+        .filter((m) => m.senderId !== user?._id && !m.seenBy?.includes(user?._id))
+        .map((m) => m.id);
 
-    if (unseenIds.length > 0) {
-      socket?.emit("markSeen", { conversationId: convId, messageIds: unseenIds });
-      await updateMessageSeenStatus(unseenIds, user?._id);
-    }
+      if (unseenIds.length > 0) {
+        socket?.emit("markSeen", { conversationId: convId, messageIds: unseenIds });
+        await updateMessageSeenStatus(unseenIds, user?._id);
+      }
 
-    setUnreadCounts((prev) => ({ ...prev, [convId]: 0 }));
-  }, [socket, user, loadMessages]);
+      // Clear unread count
+      setUnreadCounts((prev) => ({ ...prev, [convId]: 0 }));
+    },
+    [socket, user, loadMessages]
+  );
 
-  const deleteConversation = useCallback(async (conversationId) => {
-    await deleteConversationMessages(conversationId);
-    if (activeConvRef.current?._id === conversationId) {
-      setActiveConversation(null);
-      setMessages([]);
-    }
-  }, []);
+  const deleteConversation = useCallback(
+    async (conversationId) => {
+      await deleteConversationMessages(conversationId);
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+    },
+    [activeConversation]
+  );
 
+  // Socket event listeners
   useEffect(() => {
     if (!socket) return;
 
     const handleConversationsList = ({ conversations }) => setConversations(conversations);
     const handleGroupsList = ({ groups }) => setGroups(groups);
 
-    const handleNewMessage = ({ message }) => {
-      // Save to IndexedDB (non-blocking)
-      saveMessage(message).catch((err) => console.warn("IndexedDB save error:", err));
+    const handleNewMessage = async ({ message }) => {
+      await saveMessage(message);
 
-      if (activeConvRef.current?._id === message.conversationId) {
+      if (activeConversation?._id === message.conversationId) {
         setMessages((prev) => {
           const exists = prev.find((m) => m.id === message.id);
           return exists ? prev : [...prev, message];
         });
+
+        // Mark as seen if active
         if (message.senderId !== user?._id) {
-          socket.emit("markSeen", { conversationId: message.conversationId, messageIds: [message.id] });
-          updateMessageSeenStatus([message.id], user?._id).catch(() => {});
+          socket.emit("markSeen", {
+            conversationId: message.conversationId,
+            messageIds: [message.id],
+          });
+          await updateMessageSeenStatus([message.id], user?._id);
         }
       } else {
         setUnreadCounts((prev) => ({
@@ -82,6 +93,7 @@ export const ChatProvider = ({ children }) => {
         }));
       }
 
+      // Update conversation order
       setConversations((prev) => {
         const updated = prev.map((c) =>
           c._id === message.conversationId ? { ...c, lastMessageAt: message.timestamp } : c
@@ -108,21 +120,34 @@ export const ChatProvider = ({ children }) => {
     };
 
     const handleUserTyping = ({ userId, conversationId }) => {
-      if (conversationId === activeConvRef.current?._id) {
+      if (conversationId === activeConversation?._id) {
         setTypingUsers((prev) => ({ ...prev, [userId]: true }));
         clearTimeout(typingTimeouts.current[userId]);
         typingTimeouts.current[userId] = setTimeout(() => {
-          setTypingUsers((prev) => { const n = { ...prev }; delete n[userId]; return n; });
+          setTypingUsers((prev) => {
+            const n = { ...prev };
+            delete n[userId];
+            return n;
+          });
         }, 3000);
       }
     };
 
     const handleUserStoppedTyping = ({ userId }) => {
-      setTypingUsers((prev) => { const n = { ...prev }; delete n[userId]; return n; });
+      setTypingUsers((prev) => {
+        const n = { ...prev };
+        delete n[userId];
+        return n;
+      });
     };
 
     const handleUserOnline = ({ userId }) => setOnlineUsers((prev) => new Set([...prev, userId]));
-    const handleUserOffline = ({ userId }) => setOnlineUsers((prev) => { const n = new Set(prev); n.delete(userId); return n; });
+    const handleUserOffline = ({ userId }) =>
+      setOnlineUsers((prev) => {
+        const n = new Set(prev);
+        n.delete(userId);
+        return n;
+      });
     const handleOnlineUsers = ({ userIds }) => setOnlineUsers(new Set(userIds));
 
     const handleConversationStarted = ({ conversation }) => {
@@ -142,17 +167,25 @@ export const ChatProvider = ({ children }) => {
 
     const handleGroupUpdated = ({ group }) => {
       setGroups((prev) => prev.map((g) => (g._id === group._id ? group : g)));
-      if (activeConvRef.current?._id === group._id) setActiveConversation(group);
+      if (activeConversation?._id === group._id) {
+        setActiveConversation(group);
+      }
     };
 
     const handleGroupLeft = ({ conversationId }) => {
       setGroups((prev) => prev.filter((g) => g._id !== conversationId));
-      if (activeConvRef.current?._id === conversationId) { setActiveConversation(null); setMessages([]); }
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
     };
 
     const handleRemovedFromGroup = ({ conversationId }) => {
       setGroups((prev) => prev.filter((g) => g._id !== conversationId));
-      if (activeConvRef.current?._id === conversationId) { setActiveConversation(null); setMessages([]); }
+      if (activeConversation?._id === conversationId) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
     };
 
     socket.on("conversationsList", handleConversationsList);
@@ -172,6 +205,7 @@ export const ChatProvider = ({ children }) => {
     socket.on("removedFromGroup", handleRemovedFromGroup);
     socket.on("searchResults", ({ users }) => setSearchResults(users));
 
+    // Initial data fetch
     socket.emit("getConversations");
     socket.emit("getGroups");
     socket.emit("getOnlineUsers");
@@ -194,14 +228,25 @@ export const ChatProvider = ({ children }) => {
       socket.off("removedFromGroup", handleRemovedFromGroup);
       socket.off("searchResults");
     };
-  }, [socket, user, selectConversation]);
+  }, [socket, activeConversation, user, selectConversation]);
 
   return (
-    <ChatContext.Provider value={{
-      conversations, groups, activeConversation, messages,
-      onlineUsers, typingUsers, searchResults, unreadCounts,
-      setSearchResults, selectConversation, deleteConversation, loadMessages,
-    }}>
+    <ChatContext.Provider
+      value={{
+        conversations,
+        groups,
+        activeConversation,
+        messages,
+        onlineUsers,
+        typingUsers,
+        searchResults,
+        unreadCounts,
+        setSearchResults,
+        selectConversation,
+        deleteConversation,
+        loadMessages,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );
